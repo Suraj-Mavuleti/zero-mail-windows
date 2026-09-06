@@ -1,2 +1,2 @@
 #!/bin/bash
-python3 zero-mail.py
+python3 zero-mail.py "$@"
