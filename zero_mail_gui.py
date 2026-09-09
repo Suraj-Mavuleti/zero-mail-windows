@@ -1,125 +1,193 @@
-import customtkinter as ctk
-import threading
-import time
-import math
-import socket
-import urllib.request
-import json
-import sqlite3
-import random
+import sys
+import gi
+import os
+gi.require_version('Gtk', '3.0')
+from gi.repository import Gtk, Gdk, GLib, Pango
 
-ctk.set_appearance_mode("dark")
-
-class App(ctk.CTk):
+class ZeroMail(Gtk.Window):
     def __init__(self):
-        super().__init__()
-        self.title("Zero Mail Console")
-        self.geometry("1100x750")
+        super().__init__(title="Zero Mail - Ultimate Studio")
+        self.set_default_size(1350, 850)
         
-        # Premium Enterprise Color Palette
-        self.bg_color = "#0B0C10"          # Deep rich black/gray
-        self.sidebar_color = "#1F2833"     # Slate gray sidebar
-        self.accent_color = "#66FCF1"      # Neon cyan accent
-        self.text_primary = "#FFFFFF"      # Crisp white
-        self.text_secondary = "#C5C6C7"    # Soft gray text
-        self.panel_bg = "#161920"          # Slightly raised panel
+        self.header = Gtk.HeaderBar()
+        self.header.set_show_close_button(True)
+        self.header.props.title = ""
+        self.header.get_style_context().add_class("hidden-header")
+        self.set_titlebar(self.header)
         
-        self.configure(fg_color=self.bg_color)
+        self.setup_css()
         
-        self.grid_rowconfigure(0, weight=1)
-        self.grid_columnconfigure(1, weight=1)
+        main_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        self.add(main_box)
         
-        # Sidebar Navigation
-        self.sidebar = ctk.CTkFrame(self, width=240, corner_radius=0, fg_color=self.sidebar_color)
-        self.sidebar.grid(row=0, column=0, sticky="nsew")
-        self.sidebar.grid_rowconfigure(5, weight=1)
+        # ================= SIDEBAR =================
+        self.sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.sidebar.set_size_request(240, -1)
+        self.sidebar.get_style_context().add_class("sidebar")
+        main_box.pack_start(self.sidebar, False, False, 0)
         
-        # Branding
-        self.logo_label = ctk.CTkLabel(self.sidebar, text="MAIL", font=ctk.CTkFont("Segoe UI", size=26, weight="bold"), text_color=self.accent_color)
-        self.logo_label.grid(row=0, column=0, padx=25, pady=(35, 5), sticky="w")
+        logo_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        logo = Gtk.Label(label="Z E R O M A I L")
+        logo.get_style_context().add_class("sidebar-logo")
+        logo_box.pack_start(logo, True, True, 0)
+        self.sidebar.pack_start(logo_box, False, False, 20)
         
-        self.version_label = ctk.CTkLabel(self.sidebar, text="Enterprise Edition v8.5", font=ctk.CTkFont("Segoe UI", size=12), text_color=self.text_secondary)
-        self.version_label.grid(row=1, column=0, padx=25, pady=(0, 35), sticky="w")
+        btn_compose = Gtk.Button(label="✏️ Compose")
+        btn_compose.get_style_context().add_class("action-btn")
+        self.sidebar.pack_start(btn_compose, False, False, 10)
         
-        # Nav Buttons
-        self.btn_dash = ctk.CTkButton(self.sidebar, text="  Overview", font=ctk.CTkFont("Segoe UI", size=14, weight="bold"), fg_color=self.panel_bg, text_color=self.text_primary, anchor="w", hover_color=self.accent_color)
-        self.btn_dash.grid(row=2, column=0, padx=15, pady=8, sticky="ew")
+        lbl_folders = Gtk.Label(label="FOLDERS")
+        lbl_folders.get_style_context().add_class("section-label")
+        lbl_folders.set_halign(Gtk.Align.START)
+        lbl_folders.set_margin_start(20)
+        lbl_folders.set_margin_top(15)
+        self.sidebar.pack_start(lbl_folders, False, False, 10)
         
-        self.btn_set = ctk.CTkButton(self.sidebar, text="  Configuration", font=ctk.CTkFont("Segoe UI", size=14), fg_color="transparent", text_color=self.text_secondary, anchor="w", hover_color=self.panel_bg)
-        self.btn_set.grid(row=3, column=0, padx=15, pady=8, sticky="ew")
+        folders = ["📥 Inbox", "⭐ Starred", "📤 Sent", "📝 Drafts", "🗑️ Trash"]
+        for f in folders:
+            btn = Gtk.Button(label=f)
+            btn.get_style_context().add_class("folder-btn")
+            btn.set_alignment(0.0, 0.5)
+            self.sidebar.pack_start(btn, False, False, 2)
+            
+        # ================= INBOX LIST =================
+        self.inbox_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.inbox_box.set_size_request(350, -1)
+        self.inbox_box.get_style_context().add_class("inbox-col")
+        main_box.pack_start(self.inbox_box, False, False, 0)
         
-        self.btn_logs = ctk.CTkButton(self.sidebar, text="  Diagnostics", font=ctk.CTkFont("Segoe UI", size=14), fg_color="transparent", text_color=self.text_secondary, anchor="w", hover_color=self.panel_bg)
-        self.btn_logs.grid(row=4, column=0, padx=15, pady=8, sticky="ew")
+        search_entry = Gtk.Entry()
+        search_entry.set_placeholder_text("🔍 Search Mail...")
+        search_entry.get_style_context().add_class("search-entry")
+        search_entry.set_margin_top(15)
+        search_entry.set_margin_start(15)
+        search_entry.set_margin_end(15)
+        search_entry.set_margin_bottom(15)
+        self.inbox_box.pack_start(search_entry, False, False, 0)
         
-        # Main Work Area
-        self.main_view = ctk.CTkFrame(self, fg_color=self.bg_color, corner_radius=0)
-        self.main_view.grid(row=0, column=1, sticky="nsew", padx=30, pady=30)
+        scroll_inbox = Gtk.ScrolledWindow()
+        self.inbox_list = Gtk.ListBox()
+        self.inbox_list.get_style_context().add_class("transparent-list")
         
-        self.header = ctk.CTkLabel(self.main_view, text="Zero Mail Console", font=ctk.CTkFont("Segoe UI", size=32, weight="bold"), text_color=self.text_primary)
-        self.header.pack(anchor="w", pady=(0, 20))
+        emails = [
+            ("GitHub", "New push to main", "You successfully pushed 5 commits..."),
+            ("Studio Team", "Welcome to Zero", "Thanks for installing the ultimate suite..."),
+            ("Security", "New Sign-in", "We noticed a new login on Arch Linux..."),
+            ("Newsletter", "Weekly Trends", "Top UI designs of September 2026..."),
+            ("Billing", "Invoice #892", "Your recent transaction has been processed...")
+        ]
         
-        # Premium Content Glass Panel
-        self.main_frame = ctk.CTkFrame(self.main_view, fg_color=self.panel_bg, corner_radius=15, border_width=1, border_color="#2A2F3A")
-        self.main_frame.pack(fill=ctk.BOTH, expand=True)
+        for sender, subj, preview in emails:
+            row = Gtk.ListBoxRow()
+            row.get_style_context().add_class("mail-row")
+            
+            vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+            vbox.set_margin_start(15)
+            vbox.set_margin_end(15)
+            vbox.set_margin_top(12)
+            vbox.set_margin_bottom(12)
+            
+            lbl_sender = Gtk.Label(label=sender)
+            lbl_sender.set_halign(Gtk.Align.START)
+            lbl_sender.get_style_context().add_class("mail-sender")
+            
+            lbl_subj = Gtk.Label(label=subj)
+            lbl_subj.set_halign(Gtk.Align.START)
+            lbl_subj.get_style_context().add_class("mail-subj")
+            
+            lbl_prev = Gtk.Label(label=preview)
+            lbl_prev.set_halign(Gtk.Align.START)
+            lbl_prev.get_style_context().add_class("mail-prev")
+            lbl_prev.set_ellipsize(3)
+            
+            vbox.pack_start(lbl_sender, False, False, 0)
+            vbox.pack_start(lbl_subj, False, False, 0)
+            vbox.pack_start(lbl_prev, False, False, 0)
+            row.add(vbox)
+            self.inbox_list.add(row)
+            
+        scroll_inbox.add(self.inbox_list)
+        self.inbox_box.pack_start(scroll_inbox, True, True, 0)
         
-        self.setup_ui()
+        # ================= READING PANE =================
+        self.read_pane = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.read_pane.get_style_context().add_class("read-pane")
+        main_box.pack_start(self.read_pane, True, True, 0)
         
-    
-    def setup_ui(self):
-        # Service Status Top Bar
-        status_bar = ctk.CTkFrame(self.main_frame, fg_color="transparent")
-        status_bar.pack(fill=ctk.X, padx=25, pady=25)
+        mail_header = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        mail_header.set_margin_top(30)
+        mail_header.set_margin_start(40)
+        mail_header.set_margin_end(40)
+        mail_header.set_margin_bottom(20)
         
-        self.status_indicator = ctk.CTkLabel(status_bar, text="● OFFLINE", font=ctk.CTkFont(size=16, weight="bold"), text_color="#FF453A")
-        self.status_indicator.pack(side=ctk.LEFT)
+        h_subj = Gtk.Label(label="Welcome to Zero")
+        h_subj.set_halign(Gtk.Align.START)
+        h_subj.get_style_context().add_class("read-subj")
         
-        self.uptime_label = ctk.CTkLabel(status_bar, text="System Uptime: 00:00:00", font=ctk.CTkFont(size=14), text_color=self.text_secondary)
-        self.uptime_label.pack(side=ctk.RIGHT)
+        h_sender = Gtk.Label(label="From: Studio Team <hello@studio.local>")
+        h_sender.set_halign(Gtk.Align.START)
+        h_sender.get_style_context().add_class("read-sender")
         
-        # Log terminal
-        self.log = ctk.CTkTextbox(self.main_frame, font=ctk.CTkFont("Consolas", 14), fg_color="#08090C", text_color="#45A29E", corner_radius=10, border_width=1, border_color="#1F2833")
-        self.log.pack(fill=ctk.BOTH, expand=True, padx=25, pady=(0, 25))
-        self.log.insert("0.0", "Enterprise subsystem initialized. Awaiting user command parameters...\n")
+        mail_header.pack_start(h_subj, False, False, 0)
+        mail_header.pack_start(h_sender, False, False, 0)
+        self.read_pane.pack_start(mail_header, False, False, 0)
         
-        # Control Buttons
-        btn_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent")
-        btn_frame.pack(fill=ctk.X, padx=25, pady=(0, 25))
+        sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        sep.set_margin_start(40)
+        sep.set_margin_end(40)
+        self.read_pane.pack_start(sep, False, False, 0)
         
-        self.start_btn = ctk.CTkButton(btn_frame, text="▶ Initialize Engine", font=ctk.CTkFont(size=16, weight="bold"), height=45, corner_radius=8, fg_color=self.accent_color, hover_color="#45A29E", text_color="#000000", command=self.start)
-        self.start_btn.pack(side=ctk.LEFT, expand=True, padx=10)
+        mail_body = Gtk.TextView()
+        mail_body.set_wrap_mode(Gtk.WrapMode.WORD)
+        mail_body.set_left_margin(40)
+        mail_body.set_right_margin(40)
+        mail_body.set_top_margin(20)
+        mail_body.get_style_context().add_class("read-body")
+        mail_body.set_editable(False)
+        mail_body.get_buffer().set_text(
+            "Hello,\n\n"
+            "Thank you for installing the Ultimate Studio suite.\n"
+            "Your workspace is now upgraded with premium radial glassmorphism UI designs.\n\n"
+            "Enjoy the lightning fast, secure experience.\n\n"
+            "Best,\nStudio Team"
+        )
         
-        self.stop_btn = ctk.CTkButton(btn_frame, text="■ Terminate Process", font=ctk.CTkFont(size=16, weight="bold"), height=45, corner_radius=8, fg_color="#FF453A", hover_color="#DC3545", text_color="#FFFFFF", state="disabled", command=self.stop)
-        self.stop_btn.pack(side=ctk.LEFT, expand=True, padx=10)
+        scroll_body = Gtk.ScrolledWindow()
+        scroll_body.add(mail_body)
+        self.read_pane.pack_start(scroll_body, True, True, 0)
         
-        self.running = False
-        
-    def start(self):
-        if self.running: return
-        self.running = True
-        self.status_indicator.configure(text="● ONLINE (SECURE)", text_color=self.accent_color)
-        self.start_btn.configure(state="disabled", fg_color="#1F2833", text_color=self.text_secondary)
-        self.stop_btn.configure(state="normal", fg_color="#FF453A", text_color="#FFFFFF")
-        self.log.insert("end", "\n[+] Booting enterprise kernel modules...\n[+] Establishing 256-bit encrypted socket channels...")
-        threading.Thread(target=self.run_service, daemon=True).start()
-        
-    def stop(self):
-        self.running = False
-        self.status_indicator.configure(text="● OFFLINE", text_color="#FF453A")
-        self.start_btn.configure(state="normal", fg_color=self.accent_color, text_color="#000000")
-        self.stop_btn.configure(state="disabled", fg_color="#1F2833", text_color=self.text_secondary)
-        self.log.insert("end", "\n[-] Graceful shutdown sequence initiated...\n[-] Service halted securely.")
-        self.log.see("end")
-        
-    def run_service(self):
-        counter = 0
-        while self.running:
-            time.sleep(1.2)
-            counter += 1
-            if self.running:
-                self.log.insert("end", f"\n[TICK] Core sync optimal. Node throughput: {random.randint(100, 999)} ops/s | Cycles: {counter}")
-                self.log.see("end")
-
+    def setup_css(self):
+        css = b'''
+            window { background-color: #030305; }
+            .hidden-header { background: #030305; min-height: 0px; padding: 0px; border: none; box-shadow: none; }
+            .sidebar { background-color: rgba(6, 8, 12, 0.98); border-right: 1px solid rgba(255, 255, 255, 0.03); }
+            .sidebar-logo { color: #FFFFFF; font-size: 20px; font-weight: 900; letter-spacing: 5px; text-shadow: 0 0 15px rgba(255, 170, 0, 0.6); }
+            .action-btn { background: linear-gradient(45deg, #FFaa00, #FF6600); color: #000000; border-radius: 12px; font-weight: bold; padding: 12px; margin: 0 20px; border: none; box-shadow: 0 5px 15px rgba(255, 170, 0, 0.3); transition: all 0.3s; }
+            .action-btn:hover { box-shadow: 0 8px 25px rgba(255, 170, 0, 0.5); }
+            .section-label { color: #4A5568; font-size: 11px; font-weight: 900; letter-spacing: 2px; }
+            .folder-btn { background: transparent; color: #8B94A5; border: none; box-shadow: none; padding: 10px 20px; font-size: 14px; font-weight: bold; }
+            .folder-btn:hover { background: rgba(255, 255, 255, 0.05); color: #FFFFFF; border-radius: 8px; }
+            .inbox-col { background-color: #080A10; border-right: 1px solid rgba(255, 255, 255, 0.05); }
+            .search-entry { background: #10141E; color: #FFFFFF; border: 1px solid #1C2333; border-radius: 10px; padding: 10px; box-shadow: none; }
+            .transparent-list { background: transparent; }
+            .mail-row { background: transparent; border-bottom: 1px solid rgba(255,255,255,0.03); transition: all 0.2s; }
+            .mail-row:hover { background: rgba(255, 255, 255, 0.03); cursor: pointer; }
+            .mail-row:selected { background: rgba(255, 170, 0, 0.1); border-left: 3px solid #FFaa00; }
+            .mail-sender { color: #FFFFFF; font-weight: bold; font-size: 14px; }
+            .mail-subj { color: #8B94A5; font-size: 13px; font-weight: bold; }
+            .mail-prev { color: #4A5568; font-size: 12px; }
+            .read-pane { background: radial-gradient(circle at top right, #0A0D14, #030305); }
+            .read-subj { color: #FFFFFF; font-size: 28px; font-weight: bold; }
+            .read-sender { color: #8B94A5; font-size: 14px; }
+            .read-body { background: transparent; color: #c9d1d9; font-size: 16px; line-height: 1.6; }
+            .read-body text { background: transparent; }
+        '''
+        provider = Gtk.CssProvider()
+        provider.load_from_data(css)
+        Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
 if __name__ == "__main__":
-    app = App()
-    app.mainloop()
+    win = ZeroMail()
+    win.connect("destroy", Gtk.main_quit)
+    win.show_all()
+    Gtk.main()
